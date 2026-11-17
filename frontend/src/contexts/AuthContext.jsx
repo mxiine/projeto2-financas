@@ -30,7 +30,7 @@ export function AuthProvider({ children }) {
     let cancelado = false;
     api
       .get('/auth/me')
-      .then((dados) => !cancelado && setUsuario(dados))
+      .then((dados) => !cancelado && setUsuario(dados.usuario))
       .catch(() => {}) // 401 já dispara o logout pelo cliente HTTP
       .finally(() => !cancelado && setCarregando(false));
     return () => {
