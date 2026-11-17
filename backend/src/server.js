@@ -6,7 +6,7 @@ import { pool } from './config/database.js';
 
 import authRoutes from './routes/auth.routes.js';
 import lancamentosRoutes from './routes/lancamentos.routes.js';
-
+import fontesDestinosRoutes from './routes/fontesDestinos.routes.js';
 import { tratarErros } from './middlewares/tratarErros.js';
 
 const app = express();
@@ -32,7 +32,7 @@ app.get('/api/health', async (req, res, next) => {
 
 app.use('/api/auth', authRoutes);
 app.use('/api/lancamentos', lancamentosRoutes);
-
+app.use('/api/fontes-destinos', fontesDestinosRoutes);
 // Tratamento de rotas inexistentes
 app.use((req, res) => {
     res.status(404).json({
