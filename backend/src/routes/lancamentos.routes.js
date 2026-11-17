@@ -1,338 +1,273 @@
-import { pool } from '../config/database.js';
+import express from 'express';
+import { autenticar } from '../middlewares/autenticar.js';
+import {
+  listarLancamentosEResumo,
+  criarLancamento,
+  atualizarLancamento,
+  excluirLancamento,
+} from '../models/lancamento.model.js';
 
-export async function listarLancamentosEResumo({ usuarioId, inicio, fim, pagina, porPagina }) {
-  const offset = (pagina - 1) * porPagina;
+const router = express.Router();
 
-  const [totaisRows] = await pool.execute(
-    `SELECT
-       COALESCE(SUM(CASE WHEN tipo = 'entrada' THEN valor ELSE 0 END), 0) AS entradas,
-       COALESCE(SUM(CASE WHEN tipo = 'saida' THEN valor ELSE 0 END), 0) AS saidas
-     FROM lancamentos
-     WHERE usuario_id = ? AND data BETWEEN ? AND ?`,
-    [usuarioId, inicio, fim]
-  );
+function dataValida(valor) {
+  if (typeof valor !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(valor)) return false;
+  const data = new Date(`${valor}T00:00:00.000Z`);
+  return !Number.isNaN(data.getTime()) && data.toISOString().slice(0, 10) === valor;
+}
 
-  const [countRows] = await pool.execute(
-    `SELECT COUNT(*) AS total
-     FROM lancamentos
-     WHERE usuario_id = ? AND data BETWEEN ? AND ?`,
-    [usuarioId, inicio, fim]
-  );
-
-  const [rows] = await pool.execute(
-    `SELECT
-       l.id,
-       l.tipo,
-       l.descricao,
-       l.valor,
-       DATE_FORMAT(l.data, '%Y-%m-%d') AS data,
-       l.categoria_id AS categoriaId,
-       c.nome AS categoria,
-       l.fonte_destino_id AS fonteDestinoId,
-       fd.nome AS fonteDestino,
-       l.parcela_atual AS parcelaAtual,
-       l.total_parcelas AS totalParcelas,
-       l.grupo_parcelamento AS grupoParcelamento
-     FROM lancamentos l
-     INNER JOIN categorias c
-       ON c.id = l.categoria_id AND c.usuario_id = l.usuario_id
-     INNER JOIN fontes_destinos fd
-       ON fd.id = l.fonte_destino_id AND fd.usuario_id = l.usuario_id
-     WHERE l.usuario_id = ? AND l.data BETWEEN ? AND ?
-     ORDER BY l.data DESC, l.id DESC
-     LIMIT ? OFFSET ?`,
-    [usuarioId, inicio, fim, porPagina, offset]
-  );
-
-  const entradas = Number(totaisRows[0]?.entradas || 0);
-  const saidas = Number(totaisRows[0]?.saidas || 0);
-  const total = Number(countRows[0]?.total || 0);
-
+function mesAtual() {
+  const hoje = new Date();
+  const ano = hoje.getFullYear();
+  const mes = String(hoje.getMonth() + 1).padStart(2, '0');
+  const ultimoDia = new Date(ano, hoje.getMonth() + 1, 0).getDate();
   return {
-    periodo: { inicio, fim },
-    totais: {
-      entradas,
-      saidas,
-      saldo: entradas - saidas,
-    },
-    lancamentos: rows.map((row) => ({ ...row, valor: Number(row.valor) })),
-    paginacao: {
-      pagina,
-      porPagina,
-      total,
-      totalPaginas: Math.ceil(total / porPagina),
-    },
+    inicio: `${ano}-${mes}-01`,
+    fim: `${ano}-${mes}-${String(ultimoDia).padStart(2, '0')}`,
   };
 }
 
+// GET /api/lancamentos?inicio=AAAA-MM-DD&fim=AAAA-MM-DD&pagina=1&porPagina=10
+// Nesta primeira etapa, a rota atende a listagem e os totais do Dashboard.
+router.get('/', autenticar, async (req, res) => {
+  const padrao = mesAtual();
+  const inicio = req.query.inicio || padrao.inicio;
+  const fim = req.query.fim || padrao.fim;
 
-function criarErro(status, mensagem) {
-  const erro = new Error(mensagem);
-  erro.status = status;
-  throw erro;
-}
-
-// Evita que uma parcela caia em um dia inexistente.
-// Exemplo: 31 de janeiro -> 28 de fevereiro.
-function adicionarMeses(dataOriginal, quantidade) {
-  const [ano, mes, dia] = dataOriginal.split('-').map(Number);
-
-  const primeiroDia = new Date(
-    Date.UTC(ano, mes - 1 + quantidade, 1)
-  );
-
-  const ultimoDia = new Date(
-    Date.UTC(
-      primeiroDia.getUTCFullYear(),
-      primeiroDia.getUTCMonth() + 1,
-      0
-    )
-  ).getUTCDate();
-
-  const diaFinal = Math.min(dia, ultimoDia);
-
-  return [
-    primeiroDia.getUTCFullYear(),
-    String(primeiroDia.getUTCMonth() + 1).padStart(2, '0'),
-    String(diaFinal).padStart(2, '0'),
-  ].join('-');
-}
-
-export async function criarLancamento({
-  usuarioId,
-  tipo,
-  descricao,
-  valor,
-  data,
-  categoriaId,
-  fonteDestinoId,
-  totalParcelas = 1,
-}) {
-  // Confere se a categoria pertence ao usuário
-  // e se é compatível com o tipo do lançamento.
-  const [categorias] = await pool.execute(
-    `SELECT id
-     FROM categorias
-     WHERE id = ? AND usuario_id = ? AND tipo = ?`,
-    [categoriaId, usuarioId, tipo]
-  );
-
-  if (categorias.length === 0) {
-    criarErro(400, 'Categoria inválida ou incompatível com o lançamento.');
+  if (!dataValida(inicio) || !dataValida(fim) || inicio > fim) {
+    return res.status(400).json({
+      erro: 'Período inválido.',
+      campos: {
+        inicio: 'Informe uma data válida no formato AAAA-MM-DD.',
+        fim: 'Informe uma data final válida e igual ou posterior à inicial.',
+      },
+    });
   }
 
-  // Entrada utiliza fonte do tipo renda.
-  // Saída utiliza destino do tipo conta ou cartao_credito.
-  const tiposPermitidos =
-    tipo === 'entrada'
-      ? ['renda']
-      : ['conta', 'cartao_credito'];
+  const pagina = Number.parseInt(req.query.pagina ?? '1', 10);
+  const porPagina = Number.parseInt(req.query.porPagina ?? '10', 10);
 
-  const placeholders = tiposPermitidos.map(() => '?').join(', ');
-
-  const [fontes] = await pool.execute(
-    `SELECT id
-     FROM fontes_destinos
-     WHERE id = ?
-       AND usuario_id = ?
-       AND tipo IN (${placeholders})`,
-    [fonteDestinoId, usuarioId, ...tiposPermitidos]
-  );
-
-  if (fontes.length === 0) {
-    criarErro(400, 'Fonte ou destino inválido ou incompatível com o lançamento.');
+  if (!Number.isInteger(pagina) || pagina < 1 ||
+      !Number.isInteger(porPagina) || porPagina < 1 || porPagina > 100) {
+    return res.status(400).json({ erro: 'Parâmetros de paginação inválidos.' });
   }
-
-  // Trabalha em centavos para evitar erros de arredondamento.
-  const valorEmCentavos = Math.round(valor * 100);
-  const valorBase = Math.floor(valorEmCentavos / totalParcelas);
-  const resto = valorEmCentavos % totalParcelas;
-
-  const grupoParcelamento =
-    totalParcelas > 1
-      ? (await import('node:crypto')).randomUUID()
-      : null;
-
-  const conexao = await pool.getConnection();
 
   try {
-    await conexao.beginTransaction();
+    const resultado = await listarLancamentosEResumo({
+      usuarioId: req.usuarioId,
+      inicio,
+      fim,
+      pagina,
+      porPagina,
+    });
 
-    const lancamentosCriados = [];
-
-    for (let parcela = 1; parcela <= totalParcelas; parcela++) {
-      // Distribui os centavos restantes nas primeiras parcelas.
-      const valorParcelaEmCentavos =
-        valorBase + (parcela <= resto ? 1 : 0);
-
-      const valorParcela = (valorParcelaEmCentavos / 100).toFixed(2);
-
-      const dataParcela = adicionarMeses(data, parcela - 1);
-
-      const [resultado] = await conexao.execute(
-        `INSERT INTO lancamentos (
-          usuario_id,
-          tipo,
-          descricao,
-          valor,
-          data,
-          categoria_id,
-          fonte_destino_id,
-          parcela_atual,
-          total_parcelas,
-          grupo_parcelamento
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          usuarioId,
-          tipo,
-          descricao,
-          valorParcela,
-          dataParcela,
-          categoriaId,
-          fonteDestinoId,
-          parcela,
-          totalParcelas,
-          grupoParcelamento,
-        ]
-      );
-
-      lancamentosCriados.push({
-        id: resultado.insertId,
-        parcelaAtual: parcela,
-        totalParcelas,
-        valor: Number(valorParcela),
-        data: dataParcela,
-      });
-    }
-
-    await conexao.commit();
-
-    return {
-      grupoParcelamento,
-      lancamentos: lancamentosCriados,
-    };
+    return res.status(200).json(resultado);
   } catch (erro) {
-    await conexao.rollback();
-    throw erro;
-  } finally {
-    conexao.release();
+    console.error('Erro ao listar lançamentos:', erro);
+    return res.status(500).json({ erro: 'Erro ao consultar lançamentos.' });
   }
-}
+});
 
-export async function atualizarLancamento({
-  id,
-  usuarioId,
-  descricao,
-  valor,
-  data,
-  categoriaId,
-  fonteDestinoId,
-}) {
-  // Confere se o lançamento existe e pertence ao usuário.
-  const [lancamentos] = await pool.execute(
-    `SELECT id, tipo
-     FROM lancamentos
-     WHERE id = ? AND usuario_id = ?`,
-    [id, usuarioId]
-  );
 
-  if (lancamentos.length === 0) {
-    const erro = new Error('Lançamento não encontrado.');
-    erro.status = 404;
-    throw erro;
-  }
-
-  const tipo = lancamentos[0].tipo;
-
-  // Confere a categoria e seu tipo.
-  const [categorias] = await pool.execute(
-    `SELECT id
-     FROM categorias
-     WHERE id = ? AND usuario_id = ? AND tipo = ?`,
-    [categoriaId, usuarioId, tipo]
-  );
-
-  if (categorias.length === 0) {
-    const erro = new Error('Categoria inválida ou incompatível com o lançamento.');
-    erro.status = 400;
-    throw erro;
-  }
-
-  // Confere a fonte/destino.
-  const tiposPermitidos =
-    tipo === 'entrada'
-      ? ['renda']
-      : ['conta', 'cartao_credito'];
-
-  const placeholders = tiposPermitidos.map(() => '?').join(', ');
-
-  const [fontes] = await pool.execute(
-    `SELECT id
-     FROM fontes_destinos
-     WHERE id = ?
-       AND usuario_id = ?
-       AND tipo IN (${placeholders})`,
-    [fonteDestinoId, usuarioId, ...tiposPermitidos]
-  );
-
-  if (fontes.length === 0) {
-    const erro = new Error('Fonte ou destino inválido ou incompatível com o lançamento.');
-    erro.status = 400;
-    throw erro;
-  }
-
-  // Atualiza somente o lançamento informado.
-  await pool.execute(
-    `UPDATE lancamentos
-     SET descricao = ?,
-         valor = ?,
-         data = ?,
-         categoria_id = ?,
-         fonte_destino_id = ?
-     WHERE id = ? AND usuario_id = ?`,
-    [
-      descricao,
-      valor,
-      data,
-      categoriaId,
-      fonteDestinoId,
-      id,
-      usuarioId,
-    ]
-  );
-
-  return {
-    id,
+// POST /api/lancamentos
+router.post('/', autenticar, async (req, res) => {
+  const {
     tipo,
     descricao,
     valor,
     data,
     categoriaId,
     fonteDestinoId,
-  };
-}
+    totalParcelas = 1,
+  } = req.body;
 
-export async function excluirLancamento({ id, usuarioId }) {
-  // Verifica se o lançamento existe e pertence ao usuário.
-  const [rows] = await pool.execute(
-    `SELECT id
-     FROM lancamentos
-     WHERE id = ? AND usuario_id = ?`,
-    [id, usuarioId]
-  );
+  const valorNumerico = Number(valor);
 
-  if (rows.length === 0) {
-    const erro = new Error('Lançamento não encontrado.');
-    erro.status = 404;
-    throw erro;
+  if (!['entrada', 'saida'].includes(tipo)) {
+    return res.status(400).json({
+      erro: 'Tipo de lançamento inválido.',
+    });
   }
 
-  // Exclui somente o lançamento selecionado.
-  await pool.execute(
-    `DELETE FROM lancamentos
-     WHERE id = ? AND usuario_id = ?`,
-    [id, usuarioId]
-  );
+  if (
+    typeof descricao !== 'string' ||
+    descricao.trim().length < 1 ||
+    descricao.trim().length > 120
+  ) {
+    return res.status(400).json({
+      erro: 'A descrição deve ter entre 1 e 120 caracteres.',
+    });
+  }
 
-  return { id };
-}
+  if (
+    !Number.isFinite(valorNumerico) ||
+    valorNumerico <= 0 ||
+    valorNumerico > 9999999999.99
+  ) {
+    return res.status(400).json({
+      erro: 'Informe um valor positivo válido.',
+    });
+  }
+
+  if (
+    !dataValida(data) ||
+    !Number.isInteger(categoriaId) ||
+    categoriaId < 1 ||
+    !Number.isInteger(fonteDestinoId) ||
+    fonteDestinoId < 1
+  ) {
+    return res.status(400).json({
+      erro: 'Data, categoria ou fonte/destino inválido.',
+    });
+  }
+
+  if (
+    !Number.isInteger(totalParcelas) ||
+    totalParcelas < 1 ||
+    totalParcelas > 48
+  ) {
+    return res.status(400).json({
+      erro: 'A quantidade de parcelas deve ser entre 1 e 48.',
+    });
+  }
+
+  try {
+    const resultado = await criarLancamento({
+      usuarioId: req.usuarioId,
+      tipo,
+      descricao: descricao.trim(),
+      valor: Math.round(valorNumerico * 100) / 100,
+      data,
+      categoriaId,
+      fonteDestinoId,
+      totalParcelas,
+    });
+
+    return res.status(201).json({
+      mensagem: 'Lançamento criado com sucesso.',
+      ...resultado,
+    });
+  } catch (erro) {
+    console.error('Erro ao criar lançamento:', erro);
+
+    return res.status(erro.status || 500).json({
+      erro: erro.status
+        ? erro.message
+        : 'Erro ao criar lançamento.',
+    });
+  }
+});
+
+// PUT /api/lancamentos/:id
+router.put('/:id', autenticar, async (req, res) => {
+  const id = Number(req.params.id);
+
+  const {
+    descricao,
+    valor,
+    data,
+    categoriaId,
+    fonteDestinoId,
+  } = req.body;
+
+  const valorNumerico = Number(valor);
+
+  if (!Number.isInteger(id) || id < 1) {
+    return res.status(400).json({
+      erro: 'ID de lançamento inválido.',
+    });
+  }
+
+  if (
+    typeof descricao !== 'string' ||
+    descricao.trim().length < 1 ||
+    descricao.trim().length > 120
+  ) {
+    return res.status(400).json({
+      erro: 'A descrição deve ter entre 1 e 120 caracteres.',
+    });
+  }
+
+  if (
+    !Number.isFinite(valorNumerico) ||
+    valorNumerico <= 0 ||
+    valorNumerico > 9999999999.99
+  ) {
+    return res.status(400).json({
+      erro: 'Informe um valor positivo válido.',
+    });
+  }
+
+  if (
+    !dataValida(data) ||
+    !Number.isInteger(categoriaId) ||
+    categoriaId < 1 ||
+    !Number.isInteger(fonteDestinoId) ||
+    fonteDestinoId < 1
+  ) {
+    return res.status(400).json({
+      erro: 'Data, categoria ou fonte/destino inválido.',
+    });
+  }
+
+  try {
+    const resultado = await atualizarLancamento({
+      id,
+      usuarioId: req.usuarioId,
+      descricao: descricao.trim(),
+      valor: Math.round(valorNumerico * 100) / 100,
+      data,
+      categoriaId,
+      fonteDestinoId,
+    });
+
+    return res.status(200).json({
+      mensagem: 'Lançamento atualizado com sucesso.',
+      lancamento: resultado,
+    });
+  } catch (erro) {
+    console.error('Erro ao atualizar lançamento:', erro);
+
+    return res.status(erro.status || 500).json({
+      erro: erro.status
+        ? erro.message
+        : 'Erro ao atualizar lançamento.',
+    });
+  }
+});
+
+// DELETE /api/lancamentos/:id
+router.delete('/:id', autenticar, async (req, res) => {
+  const id = Number(req.params.id);
+
+  if (!Number.isInteger(id) || id < 1) {
+    return res.status(400).json({
+      erro: 'ID do lançamento inválido.',
+    });
+  }
+
+  try {
+    const resultado = await excluirLancamento({
+      id,
+      usuarioId: req.usuarioId,
+    });
+
+    return res.status(200).json({
+      mensagem: 'Lançamento excluído com sucesso.',
+      lancamento: resultado,
+    });
+  } catch (erro) {
+    if (erro.status) {
+      return res.status(erro.status).json({
+        erro: erro.message,
+      });
+    }
+
+    console.error('Erro ao excluir lançamento:', erro);
+
+    return res.status(500).json({
+      erro: 'Erro ao excluir lançamento.',
+    });
+  }
+});
+
+export default router;
