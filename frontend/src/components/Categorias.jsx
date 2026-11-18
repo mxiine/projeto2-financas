@@ -137,7 +137,7 @@ export default function Categorias() {
   }
 
   return (
-    <main className="pagina-categorias">
+    <div className="pagina-categorias">
       <h1>Categorias</h1>
       <p>Organize suas entradas e despesas.</p>
 
@@ -200,6 +200,6 @@ export default function Categorias() {
           </section>
         </div>
       )}
-    </main>
+    </div>
   );
 }
