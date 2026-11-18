@@ -8,6 +8,7 @@ const itens = [
   ['/fontes-destinos', 'Fontes e destinos'],
   ['/relatorios', 'Relatórios'],
   ['/faturas', 'Faturas'],
+  ['/saude-financeira', 'Saúde financeira'],
 ];
 
 export default function Layout() {
