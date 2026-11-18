@@ -109,3 +109,80 @@ a { color: var(--marca); }
 .vazio { color: var(--tinta-suave); padding: 1.5rem; border: 1px dashed var(--linha); border-radius: var(--raio); }
 
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+
+/* ---------- Componentes das telas ---------- */
+h2 { font-size: 1.1rem; margin: 0 0 .75rem; font-weight: 600; }
+.painel { background: var(--superficie); border: 1px solid var(--linha); border-radius: var(--raio);
+  padding: 1.1rem 1.25rem; margin-bottom: 1.25rem; }
+.painel p { margin: .5rem 0 0; }
+.grade-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0 1rem; align-items: start; }
+.grade-form .campo select, .campo select { font: inherit; padding: .6rem .7rem; border: 1px solid var(--linha);
+  border-radius: var(--raio); background: var(--fundo); color: var(--tinta); }
+.campo--erro select { border-color: var(--saida); }
+.acoes-form { grid-column: 1 / -1; display: flex; gap: .5rem; flex-wrap: wrap; margin-top: .25rem; }
+.btn--solido { background: var(--marca); color: #fff; }
+.btn--solido:hover:not(:disabled) { background: var(--marca-escura); }
+@media (prefers-color-scheme: dark) { .btn--solido { color: #0b1418; } }
+.btn--perigo { background: transparent; color: var(--saida); border-color: var(--saida); padding: .35rem .75rem; }
+.btn--perigo:hover { background: var(--erro-fundo); }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+
+.tabela-rolagem { overflow-x: auto; }
+.tabela { width: 100%; border-collapse: collapse; font-size: .95rem; }
+.tabela th, .tabela td { text-align: left; padding: .55rem .6rem; border-bottom: 1px solid var(--linha); vertical-align: middle; }
+.tabela th { font-size: .8rem; text-transform: uppercase; letter-spacing: .03em; color: var(--tinta-suave); font-weight: 500; }
+.tabela .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tabela .acoes { text-align: right; white-space: nowrap; }
+.tabela .acoes .btn { margin-left: .35rem; }
+
+.selo { display: inline-block; margin-left: .45rem; padding: .05rem .5rem; border-radius: 999px;
+  background: var(--fundo); border: 1px solid var(--linha); font-size: .75rem; color: var(--tinta-suave); }
+.paginacao { display: flex; align-items: center; justify-content: space-between; gap: .75rem; margin-top: 1rem; flex-wrap: wrap;
+  font-size: .9rem; color: var(--tinta-suave); }
+
+.lista-simples { list-style: none; margin: 0; padding: 0; }
+.lista-simples li { display: flex; justify-content: space-between; gap: 1rem; padding: .6rem 0; border-bottom: 1px solid var(--linha); }
+.lista-simples small { display: block; color: var(--tinta-suave); }
+
+.modal-fundo { position: fixed; inset: 0; background: rgba(0, 0, 0, .5); display: grid; place-items: center; padding: 1rem; z-index: 10; }
+.modal { background: var(--superficie); border-radius: 12px; padding: 1.5rem; max-width: 440px; width: 100%; border: 1px solid var(--linha); }
+
+.abas { display: flex; gap: .25rem; margin-top: .75rem; border-bottom: 1px solid var(--linha); }
+.abas button { font: inherit; background: none; border: 0; border-bottom: 2px solid transparent; padding: .5rem .9rem; cursor: pointer; color: var(--tinta-suave); }
+.abas button.ativa { color: var(--marca); border-bottom-color: var(--marca); font-weight: 500; }
+.grafico { width: 100%; margin: .5rem 0 1rem; }
+.duas-colunas { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.25rem; }
+.duas-colunas .painel { margin-bottom: 0; }
+.duas-colunas { margin-bottom: 1.25rem; }
+
+.resumo--compacto { margin-bottom: .75rem; }
+.resumo--compacto strong { font-size: 1.15rem; font-variant-numeric: tabular-nums; }
+.barra { height: 10px; background: var(--fundo); border: 1px solid var(--linha); border-radius: 999px; overflow: hidden; }
+.barra__preenchida { height: 100%; background: var(--marca); }
+.faturas { margin-top: 1rem; display: flex; flex-direction: column; gap: .6rem; }
+.fatura { border: 1px solid var(--linha); border-radius: var(--raio); padding: .6rem .9rem; }
+.fatura--aberta { border-color: var(--marca); }
+.fatura summary { cursor: pointer; display: flex; justify-content: space-between; gap: 1rem; flex-wrap: wrap; align-items: baseline; }
+.fatura__datas { color: var(--tinta-suave); font-size: .9rem; }
+
+.dicas { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .5rem; }
+.dica { padding: .7rem .9rem; border-radius: var(--raio); border-left: 4px solid var(--linha); background: var(--fundo); }
+.dica--ok { border-left-color: var(--entrada); }
+.dica--atencao { border-left-color: #d9a441; }
+.dica--alerta { border-left-color: var(--saida); }
+
+/* Categorias (tela já existente) */
+.mensagem { padding: .6rem .8rem; border-radius: var(--raio); margin: 0 0 1rem; }
+.mensagem.erro { background: var(--erro-fundo); color: var(--saida); }
+.mensagem.sucesso { background: var(--ok-fundo); color: var(--entrada); }
+.categoria-painel { background: var(--superficie); border: 1px solid var(--linha); border-radius: var(--raio); padding: 1.1rem 1.25rem; margin-bottom: 1.25rem; }
+.categoria-painel form { display: flex; flex-direction: column; gap: .4rem; max-width: 380px; }
+.categoria-painel input, .categoria-painel select { font: inherit; padding: .6rem .7rem; border: 1px solid var(--linha);
+  border-radius: var(--raio); background: var(--fundo); color: var(--tinta); }
+.categorias-colunas { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.25rem; }
+.categoria-item { display: flex; justify-content: space-between; align-items: center; padding: .5rem 0; border-bottom: 1px solid var(--linha); }
+.categoria-acoes, .categoria-botoes { display: flex; gap: .5rem; margin-top: .25rem; }
+.categoria-painel button { font: inherit; padding: .35rem .75rem; border-radius: var(--raio); border: 1px solid var(--linha);
+  background: transparent; color: var(--tinta); cursor: pointer; }
+.categoria-botoes button[type="submit"] { background: var(--marca); color: #fff; border-color: var(--marca); }
+.pagina-categorias > h1 + p { color: var(--tinta-suave); margin: 0 0 1.25rem; }
