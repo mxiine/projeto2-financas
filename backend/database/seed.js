@@ -40,7 +40,7 @@ const usuariosDemo = [
     {
         nome: 'Ana Demonstração',
         email: 'ana.demo@financas.local',
-        cpf: '52998224725',
+        cpf: '68419352098',
         senha: 'Demo1234!',
         salario: 380000,
         moradia: 135000,
@@ -130,16 +130,26 @@ async function garantirUsuario(conexao, usuario) {
     );
 
     if (encontrados.length > 0) {
-        const existente = encontrados[0];
+    const existente = encontrados[0];
 
-        if (existente.cpf !== usuario.cpf) {
-            throw new Error(
-                `O e-mail ${usuario.email} já está cadastrado com outro CPF.`
-            );
-        }
-
-        return existente.id;
+    if (existente.cpf !== usuario.cpf) {
+        throw new Error(
+            `O e-mail ${usuario.email} já está cadastrado com outro CPF.`
+        );
     }
+
+    // Atualizar a senha do usuário de demonstração
+    const senhaHash = await bcrypt.hash(usuario.senha, 10);
+
+    await conexao.execute(
+        `UPDATE usuarios
+         SET senha_hash = ?
+         WHERE id = ?`,
+        [senhaHash, existente.id]
+    );
+
+    return existente.id;
+}
 
     const [cpfExistente] = await conexao.execute(
         `SELECT id
