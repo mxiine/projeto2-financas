@@ -48,37 +48,6 @@ Aplicação web full stack para controle financeiro pessoal. O sistema permite q
 - MySQL Workbench (opcional, recomendado para administrar e consultar o banco).
 - Git (opcional, para clonar e versionar o repositório).
 
-## Estrutura do projeto
-
-```text
-projeto2-financas/
-├── backend/
-│   ├── database/
-│   │   ├── schema.sql
-│   │   ├── init.js
-│   │   └── seed.js
-│   ├── src/
-│   │   ├── config/
-│   │   │   └── database.js
-│   │   ├── middlewares/
-│   │   │   ├── autenticar.js
-│   │   │   └── tratarErros.js
-│   │   ├── models/
-│   │   └── routes/
-│   ├── tests/
-│   ├── .env.example
-│   └── package.json
-├── frontend/
-│   ├── src/
-│   │   ├── components/
-│   │   ├── contexts/
-│   │   └── services/
-│   ├── package.json
-│   └── vite.config.js
-├── .gitignore
-└── README.md
-```
-
 ## Configuração do banco de dados
 
 1. Inicie o serviço do MySQL Server no computador.
