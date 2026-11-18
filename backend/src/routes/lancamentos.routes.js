@@ -1,273 +1,146 @@
 import express from 'express';
 import { autenticar } from '../middlewares/autenticar.js';
+import { ErroHttp } from '../middlewares/tratarErros.js';
 import {
-  listarLancamentosEResumo,
-  criarLancamento,
-  atualizarLancamento,
-  excluirLancamento,
+  listarLancamentosEResumo, buscarLancamento, criarLancamento,
+  atualizarLancamento, excluirLancamento,
 } from '../models/lancamento.model.js';
+import { dataValida, primeiroDiaDoMes, ultimoDiaISO, hojeISO } from '../models/regrasCartao.js';
 
 const router = express.Router();
+router.use(autenticar);
 
-function dataValida(valor) {
-  if (typeof valor !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(valor)) return false;
-  const data = new Date(`${valor}T00:00:00.000Z`);
-  return !Number.isNaN(data.getTime()) && data.toISOString().slice(0, 10) === valor;
-}
+const inteiroPositivo = (v) => {
+  const n = Number(v);
+  return v !== '' && v !== null && v !== undefined && Number.isInteger(n) && n > 0 ? n : null;
+};
 
-function mesAtual() {
-  const hoje = new Date();
-  const ano = hoje.getFullYear();
-  const mes = String(hoje.getMonth() + 1).padStart(2, '0');
-  const ultimoDia = new Date(ano, hoje.getMonth() + 1, 0).getDate();
+// Valida o corpo de POST/PUT; devolve { dados } ou lança 400 no padrão { erro, campos }
+function validarCorpo(body, { permiteParcelas }) {
+  const b = body || {};
+  const campos = {};
+
+  if (!['entrada', 'saida'].includes(b.tipo)) campos.tipo = 'O tipo deve ser entrada ou saida.';
+
+  const descricao = typeof b.descricao === 'string' ? b.descricao.trim() : '';
+  if (!descricao || descricao.length > 120) campos.descricao = 'A descrição deve ter entre 1 e 120 caracteres.';
+
+  const valor = typeof b.valor === 'string' ? Number(b.valor.replace(',', '.')) : Number(b.valor);
+  if (b.valor === '' || b.valor === null || b.valor === undefined || !Number.isFinite(valor) || valor <= 0 || valor > 9999999999.99) {
+    campos.valor = 'O valor deve ser maior que zero.';
+  }
+
+  if (!dataValida(b.data)) campos.data = 'Informe uma data válida (AAAA-MM-DD).';
+
+  const categoriaId = inteiroPositivo(b.categoriaId);
+  if (!categoriaId) campos.categoriaId = 'Selecione uma categoria.';
+  const fonteDestinoId = inteiroPositivo(b.fonteDestinoId);
+  if (!fonteDestinoId) campos.fonteDestinoId = 'Selecione a fonte/destino.';
+
+  let totalParcelas = 1;
+  if (permiteParcelas && b.totalParcelas !== undefined && b.totalParcelas !== '') {
+    totalParcelas = Number(b.totalParcelas);
+    if (!Number.isInteger(totalParcelas) || totalParcelas < 1 || totalParcelas > 48) {
+      campos.totalParcelas = 'O número de parcelas deve ser de 1 a 48.';
+    }
+  }
+
+  if (Object.keys(campos).length) throw new ErroHttp(400, 'Dados inválidos.', campos);
+
   return {
-    inicio: `${ano}-${mes}-01`,
-    fim: `${ano}-${mes}-${String(ultimoDia).padStart(2, '0')}`,
+    tipo: b.tipo, descricao, valor: Math.round(valor * 100) / 100,
+    data: b.data, categoriaId, fonteDestinoId, totalParcelas,
   };
 }
 
-// GET /api/lancamentos?inicio=AAAA-MM-DD&fim=AAAA-MM-DD&pagina=1&porPagina=10
-// Nesta primeira etapa, a rota atende a listagem e os totais do Dashboard.
-router.get('/', autenticar, async (req, res) => {
-  const padrao = mesAtual();
-  const inicio = req.query.inicio || padrao.inicio;
-  const fim = req.query.fim || padrao.fim;
+function idDaUrl(req) {
+  const id = inteiroPositivo(req.params.id);
+  if (!id) throw new ErroHttp(400, 'Identificador inválido.');
+  return id;
+}
 
-  if (!dataValida(inicio) || !dataValida(fim) || inicio > fim) {
-    return res.status(400).json({
-      erro: 'Período inválido.',
-      campos: {
-        inicio: 'Informe uma data válida no formato AAAA-MM-DD.',
-        fim: 'Informe uma data final válida e igual ou posterior à inicial.',
-      },
-    });
-  }
-
-  const pagina = Number.parseInt(req.query.pagina ?? '1', 10);
-  const porPagina = Number.parseInt(req.query.porPagina ?? '10', 10);
-
-  if (!Number.isInteger(pagina) || pagina < 1 ||
-      !Number.isInteger(porPagina) || porPagina < 1 || porPagina > 100) {
-    return res.status(400).json({ erro: 'Parâmetros de paginação inválidos.' });
-  }
-
+// GET /api/lancamentos?inicio=&fim=&tipo=&categoriaId=&fonteDestinoId=&pagina=&porPagina=
+router.get('/', async (req, res, next) => {
   try {
-    const resultado = await listarLancamentosEResumo({
-      usuarioId: req.usuarioId,
-      inicio,
-      fim,
-      pagina,
-      porPagina,
-    });
+    const hoje = hojeISO();
+    const inicio = req.query.inicio || primeiroDiaDoMes(hoje);
+    const fim = req.query.fim || ultimoDiaISO(hoje);
+    const campos = {};
 
+    if (!dataValida(inicio)) campos.inicio = 'Informe uma data válida no formato AAAA-MM-DD.';
+    if (!dataValida(fim)) campos.fim = 'Informe uma data válida no formato AAAA-MM-DD.';
+    if (!campos.inicio && !campos.fim && inicio > fim) campos.fim = 'A data final deve ser igual ou posterior à inicial.';
+
+    const tipo = req.query.tipo || undefined;
+    if (tipo && !['entrada', 'saida'].includes(tipo)) campos.tipo = 'O tipo deve ser entrada ou saida.';
+
+    let categoriaId, fonteDestinoId;
+    if (req.query.categoriaId) {
+      categoriaId = inteiroPositivo(req.query.categoriaId);
+      if (!categoriaId) campos.categoriaId = 'Categoria inválida.';
+    }
+    if (req.query.fonteDestinoId) {
+      fonteDestinoId = inteiroPositivo(req.query.fonteDestinoId);
+      if (!fonteDestinoId) campos.fonteDestinoId = 'Fonte/destino inválido.';
+    }
+
+    const pagina = Number(req.query.pagina ?? 1);
+    const porPagina = Number(req.query.porPagina ?? 10);
+    if (!Number.isInteger(pagina) || pagina < 1) campos.pagina = 'Página inválida.';
+    if (!Number.isInteger(porPagina) || porPagina < 1 || porPagina > 100) campos.porPagina = 'Use de 1 a 100 itens por página.';
+
+    if (Object.keys(campos).length) throw new ErroHttp(400, 'Parâmetros inválidos.', campos);
+
+    const resultado = await listarLancamentosEResumo({
+      usuarioId: req.usuarioId, inicio, fim, tipo, categoriaId, fonteDestinoId, pagina, porPagina,
+    });
     return res.status(200).json(resultado);
-  } catch (erro) {
-    console.error('Erro ao listar lançamentos:', erro);
-    return res.status(500).json({ erro: 'Erro ao consultar lançamentos.' });
-  }
+  } catch (erro) { return next(erro); }
 });
 
-
-// POST /api/lancamentos
-router.post('/', autenticar, async (req, res) => {
-  const {
-    tipo,
-    descricao,
-    valor,
-    data,
-    categoriaId,
-    fonteDestinoId,
-    totalParcelas = 1,
-  } = req.body;
-
-  const valorNumerico = Number(valor);
-
-  if (!['entrada', 'saida'].includes(tipo)) {
-    return res.status(400).json({
-      erro: 'Tipo de lançamento inválido.',
-    });
-  }
-
-  if (
-    typeof descricao !== 'string' ||
-    descricao.trim().length < 1 ||
-    descricao.trim().length > 120
-  ) {
-    return res.status(400).json({
-      erro: 'A descrição deve ter entre 1 e 120 caracteres.',
-    });
-  }
-
-  if (
-    !Number.isFinite(valorNumerico) ||
-    valorNumerico <= 0 ||
-    valorNumerico > 9999999999.99
-  ) {
-    return res.status(400).json({
-      erro: 'Informe um valor positivo válido.',
-    });
-  }
-
-  if (
-    !dataValida(data) ||
-    !Number.isInteger(categoriaId) ||
-    categoriaId < 1 ||
-    !Number.isInteger(fonteDestinoId) ||
-    fonteDestinoId < 1
-  ) {
-    return res.status(400).json({
-      erro: 'Data, categoria ou fonte/destino inválido.',
-    });
-  }
-
-  if (
-    !Number.isInteger(totalParcelas) ||
-    totalParcelas < 1 ||
-    totalParcelas > 48
-  ) {
-    return res.status(400).json({
-      erro: 'A quantidade de parcelas deve ser entre 1 e 48.',
-    });
-  }
-
+// GET /api/lancamentos/:id
+router.get('/:id', async (req, res, next) => {
   try {
-    const resultado = await criarLancamento({
-      usuarioId: req.usuarioId,
-      tipo,
-      descricao: descricao.trim(),
-      valor: Math.round(valorNumerico * 100) / 100,
-      data,
-      categoriaId,
-      fonteDestinoId,
-      totalParcelas,
-    });
+    const lancamento = await buscarLancamento(idDaUrl(req), req.usuarioId);
+    if (!lancamento) throw new ErroHttp(404, 'Lançamento não encontrado.');
+    return res.status(200).json({ lancamento });
+  } catch (erro) { return next(erro); }
+});
 
+// POST /api/lancamentos (gera N parcelas quando totalParcelas > 1)
+router.post('/', async (req, res, next) => {
+  try {
+    const dados = validarCorpo(req.body, { permiteParcelas: true });
+    const { lancamentos } = await criarLancamento({ usuarioId: req.usuarioId, ...dados });
     return res.status(201).json({
-      mensagem: 'Lançamento criado com sucesso.',
-      ...resultado,
+      mensagem: lancamentos.length > 1
+        ? `Compra parcelada criada em ${lancamentos.length} parcelas.`
+        : 'Lançamento criado com sucesso.',
+      lancamentos,
     });
-  } catch (erro) {
-    console.error('Erro ao criar lançamento:', erro);
-
-    return res.status(erro.status || 500).json({
-      erro: erro.status
-        ? erro.message
-        : 'Erro ao criar lançamento.',
-    });
-  }
+  } catch (erro) { return next(erro); }
 });
 
 // PUT /api/lancamentos/:id
-router.put('/:id', autenticar, async (req, res) => {
-  const id = Number(req.params.id);
-
-  const {
-    descricao,
-    valor,
-    data,
-    categoriaId,
-    fonteDestinoId,
-  } = req.body;
-
-  const valorNumerico = Number(valor);
-
-  if (!Number.isInteger(id) || id < 1) {
-    return res.status(400).json({
-      erro: 'ID de lançamento inválido.',
-    });
-  }
-
-  if (
-    typeof descricao !== 'string' ||
-    descricao.trim().length < 1 ||
-    descricao.trim().length > 120
-  ) {
-    return res.status(400).json({
-      erro: 'A descrição deve ter entre 1 e 120 caracteres.',
-    });
-  }
-
-  if (
-    !Number.isFinite(valorNumerico) ||
-    valorNumerico <= 0 ||
-    valorNumerico > 9999999999.99
-  ) {
-    return res.status(400).json({
-      erro: 'Informe um valor positivo válido.',
-    });
-  }
-
-  if (
-    !dataValida(data) ||
-    !Number.isInteger(categoriaId) ||
-    categoriaId < 1 ||
-    !Number.isInteger(fonteDestinoId) ||
-    fonteDestinoId < 1
-  ) {
-    return res.status(400).json({
-      erro: 'Data, categoria ou fonte/destino inválido.',
-    });
-  }
-
+router.put('/:id', async (req, res, next) => {
   try {
-    const resultado = await atualizarLancamento({
-      id,
-      usuarioId: req.usuarioId,
-      descricao: descricao.trim(),
-      valor: Math.round(valorNumerico * 100) / 100,
-      data,
-      categoriaId,
-      fonteDestinoId,
-    });
-
-    return res.status(200).json({
-      mensagem: 'Lançamento atualizado com sucesso.',
-      lancamento: resultado,
-    });
-  } catch (erro) {
-    console.error('Erro ao atualizar lançamento:', erro);
-
-    return res.status(erro.status || 500).json({
-      erro: erro.status
-        ? erro.message
-        : 'Erro ao atualizar lançamento.',
-    });
-  }
+    const id = idDaUrl(req);
+    const dados = validarCorpo(req.body, { permiteParcelas: false });
+    const lancamento = await atualizarLancamento({ id, usuarioId: req.usuarioId, ...dados });
+    return res.status(200).json({ mensagem: 'Lançamento atualizado com sucesso.', lancamento });
+  } catch (erro) { return next(erro); }
 });
 
-// DELETE /api/lancamentos/:id
-router.delete('/:id', autenticar, async (req, res) => {
-  const id = Number(req.params.id);
-
-  if (!Number.isInteger(id) || id < 1) {
-    return res.status(400).json({
-      erro: 'ID do lançamento inválido.',
-    });
-  }
-
+// DELETE /api/lancamentos/:id?todasParcelas=true
+router.delete('/:id', async (req, res, next) => {
   try {
-    const resultado = await excluirLancamento({
-      id,
+    await excluirLancamento({
+      id: idDaUrl(req),
       usuarioId: req.usuarioId,
+      todasParcelas: req.query.todasParcelas === 'true',
     });
-
-    return res.status(200).json({
-      mensagem: 'Lançamento excluído com sucesso.',
-      lancamento: resultado,
-    });
-  } catch (erro) {
-    if (erro.status) {
-      return res.status(erro.status).json({
-        erro: erro.message,
-      });
-    }
-
-    console.error('Erro ao excluir lançamento:', erro);
-
-    return res.status(500).json({
-      erro: 'Erro ao excluir lançamento.',
-    });
-  }
+    return res.status(204).send();
+  } catch (erro) { return next(erro); }
 });
 
 export default router;
