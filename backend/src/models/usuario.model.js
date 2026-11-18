@@ -75,6 +75,12 @@ export async function criarUsuarioComDadosPadrao({ nome, email, cpf, senhaHash }
       [usuarioId, 'Conta corrente', 'conta']
     );
 
+    await conexao.execute(
+      `INSERT INTO fontes_destinos (usuario_id, nome, tipo)
+       VALUES (?, ?, ?)`,
+      [usuarioId, 'Salário', 'renda']
+    );
+
     await conexao.commit();
 
     return { id: usuarioId, nome, email };
