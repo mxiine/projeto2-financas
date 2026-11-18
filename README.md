@@ -79,8 +79,6 @@ DB_NAME=financas_db
 JWT_SECRET=coloque_uma_chave_secreta_longa_e_aleatoria
 FRONTEND_URL=http://localhost:5174
 
-# Opcional: senha das contas criadas pelo seed.js
-SEED_DEMO_PASSWORD=Demo1234!
 ```
 
 Substitua `sua_senha_mysql` pela senha do usuário MySQL utilizado no seu ambiente. Defina um `JWT_SECRET` próprio e longo. Não compartilhe o arquivo `.env` nem publique suas credenciais.
@@ -107,10 +105,10 @@ O seed prepara dois usuários de demonstração, categorias, fontes/destinos e m
 
 | Usuário | E-mail | Senha padrão |
 |---|---|---|
-| Ana Demonstração | `ana@financas.demo` | `Demo1234!` |
-| Bruno Demonstração | `bruno@financas.demo` | `Demo1234!` |
+| Ana Demonstração | `ana.demo@financas.local` | `Demo1234!` |
+| Bruno Demonstração | `bruno.demo@financas.local` | `Demo1234!` |
 
-A senha pode ser alterada pela variável `SEED_DEMO_PASSWORD` no `.env`. As contas são destinadas a testes locais e demonstrações acadêmicas; não utilize essas credenciais em produção.
+As contas são destinadas a testes locais e demonstrações acadêmicas; não utilize essas credenciais em produção.
 
 ## Executar a aplicação
 
